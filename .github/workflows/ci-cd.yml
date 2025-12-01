@@ -1,0 +1,95 @@
+name: ci-cd
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/annatischenko/md-ticket_project
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dev dependencies
+        run: pip install --upgrade pip && pip install -r requirements-dev.txt
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files
+
+  build-push:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: lint-test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: backend_app
+            context: app
+            dockerfile: app/Dockerfile
+          - service: airflow
+            context: airflow
+            dockerfile: airflow/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.service }}:latest
+            ${{ env.REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloud.ru VM
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.CLOUDRU_HOST }}
+          username: ${{ secrets.CLOUDRU_USER }}
+          key: ${{ secrets.CLOUDRU_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/md-ticket
+            git pull --rebase
+            docker login ghcr.io -u ${{ secrets.REGISTRY_USER }} -p ${{ secrets.REGISTRY_TOKEN }}
+            export REGISTRY=${{ env.REGISTRY }}
+            export TAG=${{ github.sha }}
+            docker compose -f docker-compose.yml -f compose/production.override.yml pull
+            docker compose -f docker-compose.yml -f compose/production.override.yml up -d --remove-orphans
+
