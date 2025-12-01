@@ -98,13 +98,20 @@ jobs:
 
       - name: Deploy over SSH
         run: |
-          ssh ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }} <<EOF
+          ssh ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }} <<'EOF'
             set -e
             cd /opt/md-ticket
+            
+            # Verify .env file exists
+            if [ ! -f .env ]; then
+              echo "Error: .env file not found in /opt/md-ticket"
+              exit 1
+            fi
+            
             docker login ghcr.io -u ${{ secrets.REGISTRY_USER }} -p ${{ secrets.REGISTRY_TOKEN }}
             export REGISTRY=${{ env.REGISTRY }}
             export TAG=${{ github.sha }}
-            docker compose -f docker-compose.yml -f compose/production.override.yml pull
-            docker compose -f docker-compose.yml -f compose/production.override.yml up -d --remove-orphans
+            docker compose --project-directory /opt/md-ticket -f docker-compose.yml -f compose/production.override.yml pull
+            docker compose --project-directory /opt/md-ticket -f docker-compose.yml -f compose/production.override.yml up -d --remove-orphans
           EOF
 
