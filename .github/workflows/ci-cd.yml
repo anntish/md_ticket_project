@@ -89,7 +89,11 @@ jobs:
 
       - name: Sync repository to server
         run: |
-          rsync -az --delete --exclude '.git/' ./ \
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            ./ \
             ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }}:/opt/md-ticket
 
       - name: Deploy over SSH
