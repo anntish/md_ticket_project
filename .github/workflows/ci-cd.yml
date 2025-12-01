@@ -111,6 +111,10 @@ jobs:
             docker login ghcr.io -u ${{ secrets.REGISTRY_USER }} -p ${{ secrets.REGISTRY_TOKEN }}
             export REGISTRY=${{ env.REGISTRY }}
             export TAG=${{ github.sha }}
+            
+            # Stop old containers gracefully
+            docker compose --project-directory /opt/md-ticket -f docker-compose.yml -f compose/production.override.yml down || true
+            
             docker compose --project-directory /opt/md-ticket -f docker-compose.yml -f compose/production.override.yml pull
             docker compose --project-directory /opt/md-ticket -f docker-compose.yml -f compose/production.override.yml up -d --remove-orphans
           EOF
