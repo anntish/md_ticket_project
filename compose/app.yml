@@ -1,0 +1,31 @@
+services:
+  backend_app:
+    build:
+      context: ../app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-md_ticket}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      MONGO_HOST: mongodb
+      MONGO_PORT: ${MONGO_PORT:-27017}
+      MONGO_DB: ${MONGO_INITDB_DATABASE:-md_ticket}
+      MONGO_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?required}
+      MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?required}
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    volumes:
+      - ../app:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - core
+

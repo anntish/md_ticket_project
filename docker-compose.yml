@@ -1,0 +1,13 @@
+name: md-ticket-stack
+
+include:
+  - path: ./compose/infrastructure.yml
+    env_file:
+      - .env
+  - path: ./compose/app.yml
+    env_file:
+      - .env
+  - path: ./compose/airflow.yml
+    env_file:
+      - .env
+
