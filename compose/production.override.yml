@@ -1,7 +1,7 @@
 services:
   backend_app:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/backend_app:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/backend_app:${TAG:-latest}
     command:
       - uvicorn
       - main:app
@@ -13,26 +13,26 @@ services:
 
   airflow-init:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/airflow:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/airflow:${TAG:-latest}
     volumes: []
 
   airflow-webserver:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/airflow:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/airflow:${TAG:-latest}
     volumes: []
 
   airflow-scheduler:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/airflow:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/airflow:${TAG:-latest}
     volumes: []
 
   airflow-worker:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/airflow:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/airflow:${TAG:-latest}
     volumes: []
 
   airflow-triggerer:
     build: null
-    image: ${REGISTRY:-ghcr.io/anntish/md-ticket_project}/airflow:${TAG:-latest}
+    image: ${REGISTRY:-ghcr.io/anntish/md_ticket_project}/airflow:${TAG:-latest}
     volumes: []
 

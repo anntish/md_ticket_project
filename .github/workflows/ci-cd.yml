@@ -77,19 +77,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to Cloud.ru VM
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.1
         with:
-          host: ${{ secrets.CLOUDRU_HOST }}
-          username: ${{ secrets.CLOUDRU_USER }}
-          key: ${{ secrets.CLOUDRU_SSH_KEY }}
-          script: |
-            set -euo pipefail
+          ssh-private-key: ${{ secrets.CLOUDRU_SSH_KEY }}
+
+      - name: Add Cloud.ru host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.CLOUDRU_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync repository to server
+        run: |
+          rsync -az --delete --exclude '.git/' ./ \
+            ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }}:/opt/md-ticket
+
+      - name: Deploy over SSH
+        run: |
+          ssh ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }} <<EOF
+            set -e
             cd /opt/md-ticket
-            git pull --rebase
             docker login ghcr.io -u ${{ secrets.REGISTRY_USER }} -p ${{ secrets.REGISTRY_TOKEN }}
             export REGISTRY=${{ env.REGISTRY }}
             export TAG=${{ github.sha }}
             docker compose -f docker-compose.yml -f compose/production.override.yml pull
             docker compose -f docker-compose.yml -f compose/production.override.yml up -d --remove-orphans
+          EOF
 
