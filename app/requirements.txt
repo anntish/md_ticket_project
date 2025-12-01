@@ -1,0 +1,8 @@
+pydantic
+fastapi
+requests
+uvicorn
+pymongo
+psycopg2-binary
+loguru
+python-dotenv
