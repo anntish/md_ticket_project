@@ -93,6 +93,7 @@ jobs:
             --exclude '.git/' \
             --exclude '.env' \
             --exclude '.env.*' \
+            --exclude 'airflow/logs/'
             ./ \
             ${{ secrets.CLOUDRU_USER }}@${{ secrets.CLOUDRU_HOST }}:/opt/md-ticket
 
