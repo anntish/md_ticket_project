@@ -5,6 +5,7 @@ from datetime import datetime, date, timezone, timedelta
 from loguru import logger
 import sys
 from collector import AviasalesFlightCollector, AviasalesRequestParams
+from mongodb_to_postgres import mongodb_to_postgres_full_reload
 from dotenv import load_dotenv
 import os
 
@@ -99,11 +100,14 @@ default_args = {
 with DAG(
     dag_id="aviasales_calendar_collector",
     default_args=default_args,
-    description="Сбор цен по календарю из Aviasales -> MongoDB (bulk-safe)",
+    description="Сбор цен по календарю из Aviasales -> MongoDB (bulk-safe) -> Postgres (full reload)",
     schedule_interval="@hourly",
     start_date=datetime(2025, 12, 1),
     catchup=False,
     tags=["aviasales", "el", "mongodb"],
 ) as dag:
 
-    collect_and_load_to_mongodb()
+    collect_mongo = collect_and_load_to_mongodb()
+    mongo_to_postgres = mongodb_to_postgres_full_reload()
+
+    collect_mongo >> mongo_to_postgres
