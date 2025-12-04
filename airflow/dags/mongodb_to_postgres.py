@@ -1,163 +1,175 @@
-# mongo_to_postgres.py
+# mongodb_to_postgres.py
 
-from datetime import datetime, timezone, date
+from datetime import datetime, date
 from typing import Any
 import os
 
 from loguru import logger
+from airflow.decorators import task
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from psycopg2.extras import execute_values
 
 
-def fetch_mongo_docs(
-    mongo_conn_id: str,
-    mongo_db_env_var: str = "MONGO_INITDB_DATABASE",
-    collection_name: str = "flight_prices_calendar",
-) -> list[dict[str, Any]]:
+POSTGRES_CONN_ID = "postgres_default"
+MONGO_CONN_ID = "mongo_default"
+MONGO_COLLECTION = "flight_prices_calendar"
+POSTGRES_TABLE = "aviasales.aviasales_flight_offers"
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        logger.warning(f"Не удалось распарсить datetime: {value!r}")
+        return None
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.fromisoformat(value).date()
+    except Exception:
+        logger.warning(f"Не удалось распарсить date: {value!r}")
+        return None
+
+
+@task(task_id="mongodb_to_postgres")
+def mongodb_to_postgres(**context):
     """
-    Забирает ВСЕ документы из указанной коллекции MongoDB.
-    Использует Airflow MongoHook и имя базы из переменной окружения.
+    EL:
+    - читаем документы из Mongo
+    - разворачиваем data[]
+    - вставляем в Postgres батчами (через psycopg2), с ON CONFLICT DO NOTHING
     """
-    db_name = os.getenv(mongo_db_env_var)
+
+    db_name = os.getenv("MONGO_INITDB_DATABASE")
     if not db_name:
-        raise ValueError(f"{mongo_db_env_var} не задана в переменных окружения!")
+        raise ValueError("MONGO_INITDB_DATABASE не задан в переменных окружения!")
 
-    mongo_hook = MongoHook(conn_id=mongo_conn_id)
-    client = mongo_hook.get_conn()
-    db = client[db_name]
-    collection = db[collection_name]
+    # MongoDB
+    mongo_hook = MongoHook(conn_id=MONGO_CONN_ID)
+    mongo_client = mongo_hook.get_conn()
+    collection = mongo_client[db_name][MONGO_COLLECTION]
 
-    docs = list(collection.find({}))
-    logger.info(f"Найдено {len(docs)} документов в MongoDB.{collection_name}")
-    return docs
+    # Postgres
+    pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
 
+    cursor = collection.find({})
+    rows: list[tuple[Any, ...]] = []
 
-def upsert_docs_to_postgres_raw(
-    docs: list[dict[str, Any]],
-    postgres_conn_id: str,
-    table_name: str = "flight_prices_calendar_raw",
-) -> int:
-    """
-    Кладёт документы из Mongo в Postgres в таблицу RAW.
-    - origin, destination, departure_at → отдельные колонки
-    - payload JSONB → весь документ без служебных полей
-    - created_at → из Mongo (если есть)
-    - loaded_at → текущее время (момент загрузки в PG)
+    total_docs = 0
+    total_offers = 0
 
-    Вставка с UPSERT по (origin, destination, departure_at).
-    """
+    for doc in cursor:
+        total_docs += 1
 
-    if not docs:
-        logger.warning("Список документов пуст, нечего загружать в Postgres")
-        return 0
+        currency = doc.get("currency")
+        calendar_departure_date = _parse_date(doc.get("departure_at"))
+        mongo_created_at = _parse_dt(doc.get("created_at"))
 
-    pg_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
-    conn = pg_hook.get_conn()
+        if mongo_created_at is None:
+            logger.warning(f"Документ без created_at, _id={doc.get('_id')}")
+            continue
 
-    create_table_sql = f"""
-    CREATE TABLE IF NOT EXISTS {table_name} (
-        origin       TEXT NOT NULL,
-        destination  TEXT NOT NULL,
-        departure_at DATE NOT NULL,
-        payload      JSONB,
-        created_at   TIMESTAMPTZ,
-        loaded_at    TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (origin, destination, departure_at)
-    );
-    """
+        offers = doc.get("data") or []
 
-    insert_sql = f"""
-        INSERT INTO {table_name} (
-            origin, destination, departure_at, payload, created_at, loaded_at
-        ) VALUES %s
-        ON CONFLICT (origin, destination, departure_at) DO UPDATE SET
-            payload    = EXCLUDED.payload,
-            created_at = EXCLUDED.created_at,
-            loaded_at  = EXCLUDED.loaded_at;
-    """
-
-    rows = []
-
-    for d in docs:
-        try:
-            origin = d["origin"]
-            destination = d["destination"]
-
-            # В Mongo ты сохраняешь departure_at как "YYYY-MM-DD"
-            departure_at_str = d["departure_at"]
-            departure_at = date.fromisoformat(departure_at_str)
-
-            # created_at может быть строкой в ISO формате
-            created_at_raw = d.get("created_at")
-            if isinstance(created_at_raw, str):
-                try:
-                    created_at = datetime.fromisoformat(created_at_raw)
-                except Exception:
-                    created_at = None
-            else:
-                created_at = None
-
-            # payload: весь документ без служебных/ключевых полей
-            payload = {
-                k: v
-                for k, v in d.items()
-                if k not in ["_id", "origin", "destination", "departure_at"]
-            }
+        for offer in offers:
+            total_offers += 1
 
             rows.append(
                 (
-                    origin,
-                    destination,
-                    departure_at,
-                    payload,
-                    created_at,
-                    datetime.now(timezone.utc),  # loaded_at
+                    offer.get("origin"),
+                    offer.get("destination"),
+                    offer.get("origin_airport"),
+                    offer.get("destination_airport"),
+                    offer.get("price"),
+                    currency,
+                    offer.get("airline"),
+                    offer.get("flight_number"),
+                    _parse_dt(offer.get("departure_at")),
+                    _parse_dt(offer.get("return_at")),
+                    offer.get("transfers"),
+                    offer.get("return_transfers"),
+                    offer.get("duration"),
+                    offer.get("duration_to"),
+                    offer.get("duration_back"),
+                    offer.get("link"),
+                    calendar_departure_date,
+                    mongo_created_at,
                 )
             )
-        except Exception as e:
-            logger.exception(f"Не удалось обработать документ {d.get('_id')}: {e}")
+
+    logger.info(f"MongoDB: документов={total_docs}, офферов={total_offers}")
 
     if not rows:
-        logger.warning("После нормализации нет строк для вставки в Postgres")
-        return 0
+        logger.warning("Нет строк для вставки в PostgreSQL.")
+        return {"docs": total_docs, "offers": total_offers, "inserted": 0}
 
-    with conn:
+    # поля в том порядке, как в init.sql
+    columns = [
+        "origin",
+        "destination",
+        "origin_airport",
+        "destination_airport",
+        "price",
+        "currency",
+        "airline",
+        "flight_number",
+        "departure_at",
+        "return_at",
+        "transfers",
+        "return_transfers",
+        "duration",
+        "duration_to",
+        "duration_back",
+        "link",
+        "calendar_departure_date",
+        "mongo_created_at",
+    ]
+
+    insert_sql = f"""
+        INSERT INTO {POSTGRES_TABLE} (
+            {", ".join(columns)}
+        ) VALUES (
+            {", ".join(["%s"] * len(columns))}
+        )
+        ON CONFLICT DO NOTHING;
+    """
+
+    # ---- батчи через psycopg2 ----
+    batch_size = 1000
+    inserted = 0
+
+    conn = pg_hook.get_conn()
+    conn.autocommit = False
+    try:
         with conn.cursor() as cur:
-            cur.execute(create_table_sql)
-            execute_values(cur, insert_sql, rows)
+            for i in range(0, len(rows), batch_size):
+                batch = rows[i : i + batch_size]
+                # executemany = один SQL, много параметров
+                cur.executemany(insert_sql, batch)
+                inserted += len(batch)
+                logger.info(f"Вставлено батчем: {len(batch)} (всего: {inserted})")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Ошибка при вставке в PostgreSQL")
+        raise
+    finally:
+        conn.close()
 
-    logger.success(
-        f"Успешно загружено {len(rows)} строк в Postgres в таблицу {table_name}"
-    )
-    return len(rows)
+    logger.success(f"Готово! Вставлено {inserted} строк в PostgreSQL")
 
-
-def mongodb_to_postgres_full_reload(
-    mongo_conn_id: str = "mongo_default",
-    postgres_conn_id: str = "postgres_default",
-    mongo_db_env_var: str = "MONGO_INITDB_DATABASE",
-    collection_name: str = "flight_prices_calendar",
-    table_name: str = "flight_prices_calendar_raw",
-) -> int:
-    """
-    Высокоуровневая функция:
-    - забирает ВСЕ документы из Mongo
-    - полностью перезаливает их в RAW-таблицу в Postgres (через upsert)
-    """
-    docs = fetch_mongo_docs(
-        mongo_conn_id=mongo_conn_id,
-        mongo_db_env_var=mongo_db_env_var,
-        collection_name=collection_name,
-    )
-    return upsert_docs_to_postgres_raw(
-        docs=docs,
-        postgres_conn_id=postgres_conn_id,
-        table_name=table_name,
-    )
-
-
-if __name__ == "__main__":
-    # Опционально: возможность запустить как отдельный скрипт
-    inserted = mongodb_to_postgres_full_reload()
-    print(f"Inserted/updated {inserted} rows into Postgres")
+    return {
+        "docs": total_docs,
+        "offers": total_offers,
+        "inserted": inserted,
+        "table": POSTGRES_TABLE,
+    }

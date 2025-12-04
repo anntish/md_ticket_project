@@ -5,7 +5,7 @@ from datetime import datetime, date, timezone, timedelta
 from loguru import logger
 import sys
 from collector import AviasalesFlightCollector, AviasalesRequestParams
-from mongodb_to_postgres import mongodb_to_postgres_full_reload
+from mongodb_to_postgres import mongodb_to_postgres
 from dotenv import load_dotenv
 import os
 
@@ -108,6 +108,6 @@ with DAG(
 ) as dag:
 
     collect_mongo = collect_and_load_to_mongodb()
-    mongo_to_postgres = mongodb_to_postgres_full_reload()
+    mongo_to_postgres = mongodb_to_postgres()
 
     collect_mongo >> mongo_to_postgres
