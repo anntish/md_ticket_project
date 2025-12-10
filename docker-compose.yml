@@ -13,6 +13,9 @@ include:
   - path: ./compose/dbt.yml
     env_file:
       - .env
+  - path: ./compose/dbt.yml
+    env_file:
+      - .env
   - path: ./compose/elementary.yml
     env_file:
       - .env
