@@ -1,8 +1,9 @@
 from typing import Any, Literal
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
 
 import os
 import time
+from itertools import permutations
 
 import requests
 from loguru import logger
@@ -28,13 +29,14 @@ class AviasalesRequestParams(BaseModel):
         description="Destination IATA code",
     )
     currency: Literal["RUB", "USD", "EUR"] = "RUB"
-    departure_at: date | None = Field(
+    # YYYY-MM or YYYY-MM-DD or python date
+    departure_at: date | str | None = Field(
         None,
-        description="Departure date",
+        description="Departure date (YYYY-MM or YYYY-MM-DD)",
     )
-    return_at: date | None = Field(
+    return_at: date | str | None = Field(
         None,
-        description="Return date",
+        description="Return date (YYYY-MM or YYYY-MM-DD)",
     )
     one_way: bool = Field(True, description="One-way ticket flag")
     direct: bool = Field(False, description="Direct flights only flag")
@@ -63,10 +65,28 @@ class AviasalesRequestParams(BaseModel):
             raise ValueError("IATA code must be a string")
         return v.upper()
 
+    @field_validator("departure_at", "return_at", mode="before")
+    @classmethod
+    def _normalize_date_or_month(cls, v: Any) -> Any:
+        """Allow date or 'YYYY-MM' / 'YYYY-MM-DD' strings."""
+        if v is None:
+            return v
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            # very light validation; API will do strict check
+            if len(v) in (7, 10):  # 'YYYY-MM' or 'YYYY-MM-DD'
+                return v
+            raise ValueError(
+                "departure_at/return_at must be date or string 'YYYY-MM'/'YYYY-MM-DD'"
+            )
+        raise ValueError("departure_at/return_at must be date or string")
+
     @model_validator(mode="after")
     def _validate_one_way_requires_no_return_at(self) -> "AviasalesRequestParams":
         if self.one_way and self.return_at is not None:
-            raise ValueError("For one_way=True, the return_at parameter must be None ")
+            raise ValueError("If one_way=True, return_at must be None")
         return self
 
     def to_query_dict(self) -> dict:
@@ -77,10 +97,17 @@ class AviasalesRequestParams(BaseModel):
         d["direct"] = str(self.direct).lower()
         d["unique"] = str(self.unique).lower()
 
-        if self.departure_at:
-            d["departure_at"] = self.departure_at.isoformat()
-        if self.return_at:
-            d["return_at"] = self.return_at.isoformat()
+        if self.departure_at is not None:
+            if isinstance(self.departure_at, date):
+                d["departure_at"] = self.departure_at.isoformat()
+            else:
+                d["departure_at"] = self.departure_at  # string as is
+
+        if self.return_at is not None:
+            if isinstance(self.return_at, date):
+                d["return_at"] = self.return_at.isoformat()
+            else:
+                d["return_at"] = self.return_at  # string as is
 
         return d
 
@@ -187,11 +214,55 @@ class AviasalesFlightCollector:
             raise
 
 
+def load_city_codes(path: str) -> list[str]:
+    """Load IATA city/airport codes from file, one per line, skipping comments/empty."""
+    codes: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            code = line.strip().upper()
+            if not code or code.startswith("#"):
+                continue
+            codes.append(code)
+    return codes
+
+
+def iter_months_current_plus_12(start: date) -> list[str]:
+    """Current month + 12 months ahead = 13 months total, as 'YYYY-MM'."""
+    res: list[str] = []
+    year = start.year
+    month = start.month
+
+    for _ in range(13):
+        res.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            month = 1
+            year += 1
+
+    return res
+
+
 def collect_calendar_to_mongo(
     *,
-    days: int = 30,
+    city_codes_file: str = "city_codes.txt",
 ) -> dict[str, Any]:
-    """Load Aviasales calendar data into MongoDB"""
+    """
+    Load Aviasales calendar data into MongoDB.
+
+    - Takes city/airport codes from a file (one per line)
+    - Builds all ordered pairs (origin != destination)
+    - For each pair and for each of 13 months (current + 12) requests prices_for_dates
+    - Logs each API call to Mongo via collection.insert_one({
+        "endpoint": ...,
+        "request": ...,
+        "response": ...,
+        "status_code": ...,
+        "created_at": ...,
+        "updated_at": ...,
+        "batch_started_at": ...,
+        "error": ...
+      })
+    """
     token = os.getenv("AVIASALES_TOKEN")
     if not token:
         raise ValueError("AVIASALES_TOKEN is not set in env")
@@ -207,6 +278,20 @@ def collect_calendar_to_mongo(
     if not mongo_db:
         raise ValueError("MONGO_DB/MONGO_INITDB_DATABASE is not set in env")
 
+    # load city codes
+    city_codes = load_city_codes(city_codes_file)
+    if len(city_codes) < 2:
+        raise ValueError("Need at least 2 city codes in file to build pairs")
+
+    logger.info(f"Loaded {len(city_codes)} city codes: {city_codes}")
+
+    city_pairs = list(permutations(city_codes, 2))
+    logger.info(f"Total city pairs (ordered): {len(city_pairs)}")
+
+    # current month + 12 ahead
+    month_periods = iter_months_current_plus_12(date.today())
+    logger.info(f"Month periods (YYYY-MM): {month_periods}")
+
     client = MongoClient(
         host=mongo_host,
         port=mongo_port,
@@ -214,56 +299,81 @@ def collect_calendar_to_mongo(
         password=mongo_password,
     )
 
+    batch_started_at = datetime.now(timezone.utc)
+
     try:
         db = client[mongo_db]
         collection = db["flight_prices_calendar"]
 
-        try:
-            req = AviasalesRequestParams(
-                token=token,
-                origin="MOW",
-                destination="NYC",
-                one_way=False,
-                limit=1000,
-                sorting="price",
-            )
-        except Exception as e:
-            logger.error(f"Invalid request parameters in Aviasales: {e}")
-            raise
-
         number_tickets: int = 0
         number_missed: int = 0
-        today = date.today()
-        data_range = [today + timedelta(days=x) for x in range(days)]
 
         with AviasalesFlightCollector() as collector:
-            for idx, dep_date in enumerate(data_range):
-                try:
-                    req.departure_at = dep_date
-                    response = collector.collect(req)
-                    number_tickets += len(response.get("data", []))
+            for origin, destination in city_pairs:
+                logger.info(f"Processing route {origin} -> {destination}")
 
-                    filter_doc = {
-                        "origin": req.origin,
-                        "destination": req.destination,
-                        "departure_at": dep_date.isoformat(),
-                    }
+                for dep_month in month_periods:
+                    try:
+                        created_at = datetime.now(timezone.utc)
 
-                    update_doc = {
-                        "$set": {
-                            **response,
-                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        req = AviasalesRequestParams(
+                            token=token,
+                            origin=origin,
+                            destination=destination,
+                            one_way=True,
+                            direct=False,
+                            limit=31,
+                            sorting="price",
+                            departure_at=dep_month,  # 'YYYY-MM'
+                        )
+
+                        response = collector.collect(req)
+                        status_code = 200  # if no exception, we assume OK
+
+                        updated_at = datetime.now(timezone.utc)
+
+                        doc = {
+                            "endpoint": collector._API_URL,
+                            "request": req.to_query_dict(),
+                            "response": response,
+                            "status_code": status_code,
+                            "created_at": created_at.isoformat(),
+                            "updated_at": updated_at.isoformat(),
+                            "batch_started_at": batch_started_at.isoformat(),
+                            "error": False,
                         }
-                    }
 
-                    collection.update_one(filter_doc, update_doc, upsert=True)
+                        collection.insert_one(doc)
 
-                except Exception as e:
-                    number_missed += 1
-                    logger.exception(f"Skipping {dep_date} due to error: {str(e)}")
+                        number_tickets += len(response.get("data", []))
+
+                    except Exception as e:
+                        number_missed += 1
+
+                        error_doc = {
+                            "endpoint": collector._API_URL,
+                            "request": (
+                                req.to_query_dict() if "req" in locals() else None
+                            ),
+                            "response": str(e),
+                            "status_code": getattr(
+                                getattr(e, "response", None), "status_code", None
+                            ),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "batch_started_at": batch_started_at.isoformat(),
+                            "error": True,
+                        }
+
+                        collection.insert_one(error_doc)
+
+                        logger.exception(
+                            f"Skipping {origin}->{destination} {dep_month} due to error: {str(e)}"
+                        )
 
                 logger.success(
-                    f"Response {idx}: Collected {number_tickets} offers (missed={number_missed})."
+                    f"Finished route {origin}->{destination}: "
+                    f"total_offers={number_tickets}, missed={number_missed}"
                 )
 
         return {
@@ -271,6 +381,8 @@ def collect_calendar_to_mongo(
             "number_missed": number_missed,
             "collection": "flight_prices_calendar",
             "db": mongo_db,
+            "routes": len(city_pairs),
+            "months": len(month_periods),
         }
     finally:
         client.close()
