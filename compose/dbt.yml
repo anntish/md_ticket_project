@@ -1,0 +1,22 @@
+services:
+  dbt:
+    build:
+      context: ../dbt
+      dockerfile: Dockerfile
+    working_dir: /usr/app/dbt
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt/profiles
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-md_ticket}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ../dbt:/usr/app/dbt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - core
+
+

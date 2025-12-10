@@ -1,0 +1,17 @@
+name: "md_ticket_dbt"
+version: "1.0.0"
+config-version: 2
+
+profile: "md_ticket"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  md_ticket_dbt:
+    +materialized: view
+
+

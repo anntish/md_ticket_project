@@ -1,0 +1,12 @@
+services:
+  elementary:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${ELEMENTARY_PORT:-5003}:80"
+    volumes:
+      - ../dbt/elementary_reports:/usr/share/nginx/html:ro
+    networks:
+      - core
+
+
