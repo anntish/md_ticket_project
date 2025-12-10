@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Generator
 
@@ -25,8 +25,6 @@ load_dotenv()
 
 # ---------- SQLALCHEMY BASE ----------
 
-# Для SQLAlchemy 1.x используем declarative_base.
-# mypy не любит его как тип для наследования — заглушим на уровне класса.
 Base = declarative_base()
 
 
@@ -44,7 +42,6 @@ def get_config() -> dict[str, dict[str, Any]]:
     pg_host = os.getenv("POSTGRES_HOST")
     pg_port = os.getenv("POSTGRES_PORT")
 
-    # PostgreSQL URL
     pg_url = (
         "postgresql://" f"{pg_user}:{pg_password}" f"@{pg_host}:{pg_port}" f"/{pg_db}"
     )
@@ -95,9 +92,17 @@ def parse_dt(value: Any) -> datetime | None:
 # ---------- MONGO ----------
 
 
-def get_data_from_mongo() -> Generator[dict[str, Any], None, None]:
+def get_data_from_mongo(
+    updated_at: datetime | None = None,
+) -> Generator[dict[str, Any], None, None]:
     """
-    Получение ВСЕХ данных из MongoDB (flight_prices_calendar).
+    Получение данных из MongoDB (flight_prices_calendar).
+
+    Если updated_at не передан — берём все документы.
+    Если передан — берём документы, у которых updated_at > переданного значения.
+
+    В Mongo updated_at хранится как строка вида
+    "2025-12-10T16:17:57.252607+00:00", поэтому сравниваем строками.
     """
 
     mongo_config = get_config()["mongo"]
@@ -112,16 +117,24 @@ def get_data_from_mongo() -> Generator[dict[str, Any], None, None]:
         collection = db["flight_prices_calendar"]
 
         logger.info(
-            f"Getting ALL data from MongoDB: db={db_name}, "
-            f"collection=flight_prices_calendar"
+            f"Getting data from MongoDB with updated_at watermark: {updated_at}"
         )
 
-        cursor = collection.find({})
+        if updated_at is None:
+            filter_condition: dict[str, Any] = {}
+        else:
+            # приводим watermark к UTC и в ISO-формат, как в Mongo
+            iso = updated_at.astimezone(timezone.utc).isoformat()
+            filter_condition = {"updated_at": {"$gt": iso}}
 
-        for doc in cursor:
-            # dict(...) чтобы mypy был доволен, что это словарь
-            yield dict(doc)
+        logger.info(f"Mongo filter_condition: {filter_condition}")
+        count = collection.count_documents(filter_condition)
+        logger.info(f"Mongo documents matched: {count}")
 
+        data = collection.find(filter_condition)
+
+        for item in data:
+            yield dict(item)
     finally:
         client.close()
 
@@ -147,10 +160,11 @@ class AviasalesApiLog(Base):  # type: ignore[misc, valid-type]
 
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
-    batch_started_at = Column(DateTime)
+    batch_started_at = Column(DateTime)  # <-- новое поле
 
     # SCD2-поля
     valid_from_dttm = Column(DateTime, server_default=func.now())
+    # 5999-12-31 – дата-заглушка, которая означает, что запись актуальна
     valid_to_dttm = Column(
         DateTime,
         nullable=False,
@@ -167,6 +181,7 @@ def declare_database_in_postgres() -> None:
     """
     try:
         postgres_config = get_config()["postgres"]
+
         engine = create_engine(postgres_config["url"])
 
         with engine.connect() as connection:
@@ -178,12 +193,36 @@ def declare_database_in_postgres() -> None:
         raise
 
 
+def get_last_updated_at(session: Session, shift_days: int = 1) -> datetime:
+    """
+    Получение времени последнего обновления updated_at (аналогично AirQuality).
+
+    :param session: Сессия SQLAlchemy
+    :param shift_days: Сдвиг в днях назад – чтобы записи, которые были
+                       обновлены задним числом, тоже попали в выборку.
+    """
+    last_updated_at: datetime | None = session.query(
+        func.max(AviasalesApiLog.updated_at)
+    ).scalar()
+
+    if last_updated_at is None:
+        last_updated_at = datetime(1970, 1, 1)
+
+    last_updated_at = last_updated_at + timedelta(days=-shift_days)
+    logger.info(f"Last updated_at (with shift): {last_updated_at!r}")
+    return last_updated_at
+
+
 def upsert_aviasales_logs(
     session: Session,
     data: Generator[dict[str, Any], None, None],
 ) -> None:
     """
-    Загрузка данных в PostgreSQL с SCD2-логикой по aviasales_id (Mongo _id).
+    Загрузка данных в PostgreSQL с SCD2-логикой по aviasales_id (Mongo _id):
+
+    - Если запись существует и была актуальной (valid_to_dttm = 5999-12-31),
+      закрываем её (valid_to_dttm = NOW()).
+    - Вставляем новую версию с valid_to_dttm = 5999-12-31.
     """
     logger.info("Upserting data to PostgreSQL (raw.aviasales_api_log)")
     try:
@@ -203,10 +242,12 @@ def upsert_aviasales_logs(
                 request=item.get("request"),
                 response=item.get("response"),
                 status_code=item.get("status_code"),
-                error=item.get("error"),
+                error=bool(item.get("error")) if "error" in item else None,
                 created_at=parse_dt(item.get("created_at")),
                 updated_at=parse_dt(item.get("updated_at")),
-                batch_started_at=parse_dt(item.get("batch_started_at")),
+                batch_started_at=parse_dt(
+                    item.get("batch_started_at")
+                ),  # <-- переложили поле
             )
 
             session.add(avia_log)
@@ -221,18 +262,23 @@ def upsert_aviasales_logs(
 
 def move_data_to_postgres() -> bool:
     """
-    Перемещение ВСЕХ данных из MongoDB в PostgreSQL.
+    Перемещение данных из MongoDB в PostgreSQL (ИНКРЕМЕНТАЛЬНО по updated_at).
     """
     config = get_config()
     engine = create_engine(config["postgres"]["url"])
     SessionLocal = sessionmaker(bind=engine)
     session: Session = SessionLocal()
 
-    # гарантируем, что схема и таблица созданы
     declare_database_in_postgres()
 
     try:
-        data = get_data_from_mongo()
+        # 1. Определяем watermark по updated_at из Postgres
+        last_updated_at = get_last_updated_at(session)
+
+        # 2. Забираем только данные, обновлённые после этого момента
+        data = get_data_from_mongo(updated_at=last_updated_at)
+
+        # 3. Заливаем с SCD2
         upsert_aviasales_logs(session, data)
     except Exception as e:
         session.rollback()
