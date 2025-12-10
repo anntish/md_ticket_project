@@ -15,7 +15,7 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import func
 
 from airflow import DAG  # type: ignore[attr-defined]
@@ -23,12 +23,11 @@ from airflow.decorators import task  # type: ignore[attr-defined]
 
 load_dotenv()
 
-
 # ---------- SQLALCHEMY BASE ----------
 
-
-class Base(DeclarativeBase):
-    pass
+# Для SQLAlchemy 1.x используем declarative_base.
+# mypy не любит его как тип для наследования — заглушим на уровне класса.
+Base = declarative_base()
 
 
 # ---------- CONFIG ----------
@@ -120,6 +119,7 @@ def get_data_from_mongo() -> Generator[dict[str, Any], None, None]:
         cursor = collection.find({})
 
         for doc in cursor:
+            # dict(...) чтобы mypy был доволен, что это словарь
             yield dict(doc)
 
     finally:
@@ -129,7 +129,7 @@ def get_data_from_mongo() -> Generator[dict[str, Any], None, None]:
 # ---------- ORM MODEL ----------
 
 
-class AviasalesApiLog(Base):
+class AviasalesApiLog(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "aviasales_api_log"
     __table_args__ = {"schema": "raw"}
 
