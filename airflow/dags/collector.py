@@ -17,7 +17,7 @@ def call_aviasales_service(**context):
 
     logger.info(f"Calling Aviasales collection service at {url}")
     try:
-        response = requests.post(url, timeout=300)
+        response = requests.post(url, timeout=2000)
     except Exception as exc:
         logger.exception(f"HTTP error calling service: {exc}")
         raise

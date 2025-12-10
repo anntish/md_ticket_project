@@ -1,0 +1,29 @@
+config:
+  send_anonymous_usage_stats: false
+
+dbt_project:
+  target: default
+  outputs:
+    default:
+      type: &type postgres
+      host: &host "{{ env_var('POSTGRES_HOST') }}"
+      user: &user "{{ env_var('POSTGRES_USER') }}"
+      password: &password "{{ env_var('POSTGRES_PASSWORD') }}"
+      port: &port 5432
+      dbname: &dbname md_ticket
+      schema: dbt
+      threads: 1
+      connect_timeout: 10 # default 10 seconds
+
+elementary:
+  outputs:
+    default:
+      type: *type
+      host: *host
+      user: *user
+      password: *password
+      port: *port
+      dbname: *dbname
+      schema: elementary
+      query_tag: elementary
+      threads: 1

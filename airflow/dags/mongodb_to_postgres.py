@@ -1,100 +1,261 @@
 import os
-from collections.abc import Iterable
+from datetime import datetime
+from typing import Any
+from collections.abc import Generator
 
-from airflow.decorators import task
-from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.providers.postgres.hooks.postgres import PostgresHook
+from dotenv import load_dotenv
 from loguru import logger
-from psycopg2.extras import Json
+from pymongo import MongoClient
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Boolean,
+    create_engine,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
+from sqlalchemy.sql import func
+
+from airflow import DAG  # type: ignore[attr-defined]
+from airflow.decorators import task  # type: ignore[attr-defined]
+
+load_dotenv()
 
 
-POSTGRES_CONN_ID = "postgres_default"
-MONGO_CONN_ID = "mongo_default"
-MONGO_COLLECTION = "flight_prices_calendar"
-POSTGRES_TABLE = "stg.aviasales_raw_offers"
-INSERT_COLUMNS = ["raw_offer"]
-INSERT_VALUES_PLACEHOLDER = ", ".join(["%s"] * len(INSERT_COLUMNS))
+# ---------- SQLALCHEMY BASE ----------
 
 
-def _iter_raw_offers(docs: Iterable[dict]) -> tuple[list[tuple[Json]], int, int]:
-    rows: list[tuple[Json]] = []
-    total_docs = 0
-    total_offers = 0
-
-    for doc in docs:
-        total_docs += 1
-        offers = doc.get("data") or []
-
-        for offer in offers:
-            total_offers += 1
-            rows.append((Json(offer),))
-
-    return rows, total_docs, total_offers
+class Base(DeclarativeBase):
+    pass
 
 
-def _insert_rows(pg_hook: PostgresHook, rows: list[tuple[Json]]) -> int:
-    if not rows:
-        return 0
+# ---------- CONFIG ----------
 
-    insert_sql = f"""
-        INSERT INTO {POSTGRES_TABLE} ({", ".join(INSERT_COLUMNS)})
-        VALUES ({INSERT_VALUES_PLACEHOLDER});
+
+def get_config() -> dict[str, dict[str, Any]]:
+    """
+    Получение конфигурации из окружения
     """
 
-    batch_size = 1000
-    inserted = 0
+    pg_db = os.getenv("POSTGRES_DB")
+    pg_user = os.getenv("POSTGRES_USER")
+    pg_password = os.getenv("POSTGRES_PASSWORD")
+    pg_host = os.getenv("POSTGRES_HOST")
+    pg_port = os.getenv("POSTGRES_PORT")
 
-    conn = pg_hook.get_conn()
-    conn.autocommit = False
-    try:
-        with conn.cursor() as cur:
-            for i in range(0, len(rows), batch_size):
-                batch = rows[i : i + batch_size]
-                cur.executemany(insert_sql, batch)
-                inserted += len(batch)
-                logger.info(f"Inserted batch: {len(batch)} (total: {inserted})")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        logger.exception("Error inserting into PostgreSQL")
-        raise
-    finally:
-        conn.close()
+    # PostgreSQL URL
+    pg_url = (
+        "postgresql://" f"{pg_user}:{pg_password}" f"@{pg_host}:{pg_port}" f"/{pg_db}"
+    )
 
-    return inserted
-
-
-@task(task_id="mongodb_to_postgres")
-def mongodb_to_postgres(**_context):
-    """Load raw offers from MongoDB to Postgres STG table"""
-
-    db_name = os.getenv("MONGO_INITDB_DATABASE")
-    if not db_name:
-        raise ValueError("MONGO_INITDB_DATABASE is not set in env")
-
-    mongo_hook = MongoHook(conn_id=MONGO_CONN_ID)
-    mongo_client = mongo_hook.get_conn()
-
-    try:
-        collection = mongo_client[db_name][MONGO_COLLECTION]
-        rows, total_docs, total_offers = _iter_raw_offers(collection.find({}))
-    finally:
-        mongo_client.close()
-
-    logger.info(f"MongoDB: docs={total_docs}, offers={total_offers}")
-
-    if not rows:
-        logger.warning("No rows to insert into PostgreSQL.")
-        return {"docs": total_docs, "offers": total_offers, "inserted": 0}
-
-    pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
-    inserted = _insert_rows(pg_hook, rows)
-
-    logger.success(f"Done! Inserted {inserted} rows into PostgreSQL")
+    mongo_port_str = os.getenv("MONGO_PORT")
+    if mongo_port_str is None:
+        raise ValueError("MONGO_PORT is not set in environment")
 
     return {
-        "docs": total_docs,
-        "offers": total_offers,
-        "inserted": inserted,
-        "table": POSTGRES_TABLE,
+        "mongo": {
+            "username": os.getenv("MONGO_INITDB_ROOT_USERNAME"),
+            "password": os.getenv("MONGO_INITDB_ROOT_PASSWORD"),
+            "host": os.getenv("MONGO_HOST"),
+            "port": int(mongo_port_str),
+            "authSource": "admin",
+        },
+        "postgres": {
+            "dbname": pg_db,
+            "user": pg_user,
+            "password": pg_password,
+            "host": pg_host,
+            "port": pg_port,
+            "url": pg_url,
+        },
     }
+
+
+# ---------- UTILS ----------
+
+
+def parse_dt(value: Any) -> datetime | None:
+    """
+    Преобразование ISO-строки в datetime (или возврат None).
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            logger.warning(f"Cannot parse datetime from value: {value!r}")
+            return None
+    return None
+
+
+# ---------- MONGO ----------
+
+
+def get_data_from_mongo() -> Generator[dict[str, Any], None, None]:
+    """
+    Получение ВСЕХ данных из MongoDB (flight_prices_calendar).
+    """
+
+    mongo_config = get_config()["mongo"]
+    client = MongoClient(**mongo_config)
+
+    try:
+        db_name = os.getenv("MONGO_DB") or os.getenv("MONGO_INITDB_DATABASE")
+        if not db_name:
+            raise ValueError("MONGO_DB или MONGO_INITDB_DATABASE не заданы в окружении")
+
+        db = client[db_name]
+        collection = db["flight_prices_calendar"]
+
+        logger.info(
+            f"Getting ALL data from MongoDB: db={db_name}, "
+            f"collection=flight_prices_calendar"
+        )
+
+        cursor = collection.find({})
+
+        for doc in cursor:
+            yield dict(doc)
+
+    finally:
+        client.close()
+
+
+# ---------- ORM MODEL ----------
+
+
+class AviasalesApiLog(Base):
+    __tablename__ = "aviasales_api_log"
+    __table_args__ = {"schema": "raw"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # _id из Mongo
+    aviasales_id = Column(String, index=True, nullable=False)
+
+    # поля из Mongo-документа
+    endpoint = Column(String)
+    request = Column(JSONB)
+    response = Column(JSONB)
+    status_code = Column(Integer)
+    error = Column(Boolean)
+
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    batch_started_at = Column(DateTime)
+
+    # SCD2-поля
+    valid_from_dttm = Column(DateTime, server_default=func.now())
+    valid_to_dttm = Column(
+        DateTime,
+        nullable=False,
+        default=datetime(5999, 12, 31),
+    )
+
+
+# ---------- POSTGRES ----------
+
+
+def declare_database_in_postgres() -> None:
+    """
+    Создание схемы и таблицы в PostgreSQL, если их ещё нет.
+    """
+    try:
+        postgres_config = get_config()["postgres"]
+        engine = create_engine(postgres_config["url"])
+
+        with engine.connect() as connection:
+            connection.execute("CREATE SCHEMA IF NOT EXISTS raw;")
+            Base.metadata.create_all(engine, checkfirst=True)
+            logger.info("Schema 'raw' and table 'aviasales_api_log' ensured.")
+    except Exception as e:
+        logger.error(f"Error occurred while declaring DB schema: {e}")
+        raise
+
+
+def upsert_aviasales_logs(
+    session: Session,
+    data: Generator[dict[str, Any], None, None],
+) -> None:
+    """
+    Загрузка данных в PostgreSQL с SCD2-логикой по aviasales_id (Mongo _id).
+    """
+    logger.info("Upserting data to PostgreSQL (raw.aviasales_api_log)")
+    try:
+        for item in data:
+            mongo_id = str(item.get("_id"))
+            logger.info(f"Upserting item with _id: {mongo_id}")
+
+            # Закрываем предыдущую "актуальную" запись
+            session.query(AviasalesApiLog).filter(
+                AviasalesApiLog.aviasales_id == mongo_id,
+                AviasalesApiLog.valid_to_dttm == datetime(5999, 12, 31),
+            ).update({"valid_to_dttm": func.now()})
+
+            avia_log = AviasalesApiLog(
+                aviasales_id=mongo_id,
+                endpoint=item.get("endpoint"),
+                request=item.get("request"),
+                response=item.get("response"),
+                status_code=item.get("status_code"),
+                error=item.get("error"),
+                created_at=parse_dt(item.get("created_at")),
+                updated_at=parse_dt(item.get("updated_at")),
+                batch_started_at=parse_dt(item.get("batch_started_at")),
+            )
+
+            session.add(avia_log)
+            session.commit()
+
+        logger.info("Upsert completed successfully.")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error occurred during upsert: {e}")
+        raise
+
+
+def move_data_to_postgres() -> bool:
+    """
+    Перемещение ВСЕХ данных из MongoDB в PostgreSQL.
+    """
+    config = get_config()
+    engine = create_engine(config["postgres"]["url"])
+    SessionLocal = sessionmaker(bind=engine)
+    session: Session = SessionLocal()
+
+    # гарантируем, что схема и таблица созданы
+    declare_database_in_postgres()
+
+    try:
+        data = get_data_from_mongo()
+        upsert_aviasales_logs(session, data)
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error occurred in move_data_to_postgres: {e}")
+        raise
+    finally:
+        session.close()
+
+    return True
+
+
+# ---------- AIRFLOW DAG ----------
+
+with DAG(
+    dag_id="el_mongo_to_postgres_aviasales",
+    start_date=datetime(2025, 1, 1),
+    schedule_interval=None,  # триггерим руками
+    catchup=False,
+    tags=["aviasales", "mongo", "postgres"],
+) as dag:
+
+    @task(task_id="move_data_to_postgres")
+    def move_data_to_postgres_task() -> bool:
+        return move_data_to_postgres()
+
+    move_data_to_postgres_task()
