@@ -59,7 +59,7 @@ Airflow: http://87.242.101.90:8080
 | Airflow Webserver     | `http://localhost:${AIRFLOW_WEBSERVER_PORT:-8080}` | UI оркестратора (логин/пароль `AIRFLOW_WWW_USER_*`). |
 | Airflow Redis (broker)| `localhost:${AIRFLOW_REDIS_PORT:-6380}` | Брокер задач Celery внутри Airflow (для отладки). |
 | dbt CLI               | контейнер `dbt` (без порта)       | Запуск dbt-моделей и Elementary CLI внутри Docker. |
-| Elementary UI         | `http://localhost:${ELEMENTARY_PORT:-5003}` | Статический UI Elementary-отчёта из `dbt/elementary_reports`. |
+| Elementary UI         | `http://localhost:${ELEMENTARY_PORT:-5003}` | Статический UI Elementary-отчёта из `dbt_project/elementary_reports`. |
 
 > Остальные сервисы (Airflow Scheduler/Worker/Triggerer/Postgres) работают внутри сети `md-ticket-core` и намеренно не проброшены наружу.
 
@@ -102,9 +102,9 @@ Airflow: http://87.242.101.90:8080
   - `dbt debug` — проверить подключение к Postgres
   - `dbt deps` — подтянуть пакеты (включая Elementary)
   - `dbt run` / `dbt test` — запуск моделей и тестов
-  - `edr report` - генерация HTML-отчёта Elementary в каталог `dbt/elementary_reports`
+  - `edr report` - генерация HTML-отчёта Elementary в каталог `dbt_project/elementary_reports`
 
-  Профиль `md_ticket` уже настроен в `dbt/profiles/profiles.yml` и использует те же `POSTGRES_*` из `.env`
+  Профиль `dbt_project` уже настроен в `dbt_project/profiles.yml` и использует те же `POSTGRES_*` из `.env`
 
 - **Запуск Elementary UI**:
 
@@ -119,5 +119,5 @@ Airflow: http://87.242.101.90:8080
 
      - `http://localhost:${ELEMENTARY_PORT:-5003}`
 
-     Elementary читает отчеты из `dbt/elementary_reports` (шарится в контейнер через volume)
+     Elementary читает отчеты из `dbt_project/elementary_reports` (шарится в контейнер через volume)
 
