@@ -16,6 +16,7 @@ services:
       MONGO_DB: ${MONGO_INITDB_DATABASE:-md_ticket}
       MONGO_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?required}
       MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?required}
+      AVIASALES_TOKEN: ${AVIASALES_TOKEN:?AVIASALES_TOKEN is required}
     ports:
       - "${FASTAPI_PORT:-8000}:8000"
     volumes:
