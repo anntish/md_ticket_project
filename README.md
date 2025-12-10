@@ -58,6 +58,8 @@ Airflow: http://87.242.101.90:8080
 | MongoDB               | `localhost:${MONGO_PORT:-27017}`  | Хранилище событий/логов (логин/пароль из `.env`). |
 | Airflow Webserver     | `http://localhost:${AIRFLOW_WEBSERVER_PORT:-8080}` | UI оркестратора (логин/пароль `AIRFLOW_WWW_USER_*`). |
 | Airflow Redis (broker)| `localhost:${AIRFLOW_REDIS_PORT:-6380}` | Брокер задач Celery внутри Airflow (для отладки). |
+| dbt CLI               | контейнер `dbt` (без порта)       | Запуск dbt-моделей и Elementary CLI внутри Docker. |
+| Elementary UI         | `http://localhost:${ELEMENTARY_PORT:-5003}` | Статический UI Elementary-отчёта из `dbt/elementary_reports`. |
 
 > Остальные сервисы (Airflow Scheduler/Worker/Triggerer/Postgres) работают внутри сети `md-ticket-core` и намеренно не проброшены наружу.
 
@@ -86,4 +88,36 @@ Airflow: http://87.242.101.90:8080
 | `AIRFLOW_WWW_USER_PASSWORD` | `admin` | Пароль администратора Airflow UI. |
 
 > После изменения `.env` перезапустите контейнеры, чтобы сервисы прочитали новые значения.
+
+## 6. dbt и Elementary
+
+- **Запуск контейнера с dbt/Elementary (CLI)**:
+
+  ```bash
+  docker compose run --rm dbt bash
+  ```
+
+  Внутри контейнера доступны:
+
+  - `dbt debug` — проверить подключение к Postgres
+  - `dbt deps` — подтянуть пакеты (включая Elementary)
+  - `dbt run` / `dbt test` — запуск моделей и тестов
+  - `edr report` - генерация HTML-отчёта Elementary в каталог `dbt/elementary_reports`
+
+  Профиль `md_ticket` уже настроен в `dbt/profiles/profiles.yml` и использует те же `POSTGRES_*` из `.env`
+
+- **Запуск Elementary UI**:
+
+  1. Сгенерировать отчет (см. выше, `edr report` в контейнере `dbt`).
+  2. Поднять Elementary UI (отдаёт статический HTML-отчёт):
+
+     ```bash
+     docker compose up -d elementary
+     ```
+
+  3. Открыть UI в браузере:
+
+     - `http://localhost:${ELEMENTARY_PORT:-5003}`
+
+     Elementary читает отчеты из `dbt/elementary_reports` (шарится в контейнер через volume)
 
