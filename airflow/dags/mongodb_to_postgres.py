@@ -18,8 +18,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import func
 
-from airflow import DAG  # type: ignore[attr-defined]
-from airflow.decorators import task  # type: ignore[attr-defined]
 
 load_dotenv()
 
@@ -260,7 +258,7 @@ def upsert_aviasales_logs(
         raise
 
 
-def move_data_to_postgres() -> bool:
+def mongodb_to_postgres() -> bool:
     """
     Перемещение данных из MongoDB в PostgreSQL (ИНКРЕМЕНТАЛЬНО по updated_at).
     """
@@ -288,20 +286,3 @@ def move_data_to_postgres() -> bool:
         session.close()
 
     return True
-
-
-# ---------- AIRFLOW DAG ----------
-
-with DAG(
-    dag_id="el_mongo_to_postgres_aviasales",
-    start_date=datetime(2025, 1, 1),
-    schedule_interval=None,  # триггерим руками
-    catchup=False,
-    tags=["aviasales", "mongo", "postgres"],
-) as dag:
-
-    @task(task_id="move_data_to_postgres")
-    def move_data_to_postgres_task() -> bool:
-        return move_data_to_postgres()
-
-    move_data_to_postgres_task()
