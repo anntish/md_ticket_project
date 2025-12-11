@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Generator
 
+from airflow.decorators import task
 from dotenv import load_dotenv
 from loguru import logger
 from pymongo import MongoClient
@@ -17,9 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.sql import func
-
-
-load_dotenv()
 
 # ---------- SQLALCHEMY BASE ----------
 
@@ -258,10 +256,12 @@ def upsert_aviasales_logs(
         raise
 
 
+@task(task_id="mongodb_to_postgres_el")
 def mongodb_to_postgres() -> bool:
     """
     Перемещение данных из MongoDB в PostgreSQL (ИНКРЕМЕНТАЛЬНО по updated_at).
     """
+    load_dotenv()
     config = get_config()
     engine = create_engine(config["postgres"]["url"])
     SessionLocal = sessionmaker(bind=engine)
