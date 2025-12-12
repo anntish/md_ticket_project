@@ -11,7 +11,7 @@ dbt_project:
       password: &password "{{ env_var('POSTGRES_PASSWORD') }}"
       port: &port 5432
       dbname: &dbname md_ticket
-      schema: dbt
+      schema: raw
       threads: 1
       connect_timeout: 10 # default 10 seconds
 
