@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_ticket_offers
+    config:
+      elementary:
+        timestamp_column: created_at
+    columns:
+      - name: response
+        tests:
+          - not_null:
+              config:
+                severity: error
+                tags: [ "dqc" ]
+
+      - name: request
+        tests:
+          - not_null:
+              config:
+                severity: error
+                tags: [ "dqc" ]
+      - name: aviasales_id
+        tests:
+          - unique:
+              config:
+                severity: error
+                tags: [ "dqc" ]

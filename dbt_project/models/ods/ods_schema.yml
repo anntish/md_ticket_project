@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: ods_ticket_offers
+    config:
+      elementary:
+        timestamp_column: created_at
+    columns:
+      - name: search_date
+        tests:
+          - not_null:
+              config:
+                severity: error
+                tags: ["dqc"]
+      - name: origin
+        tests:
+          - not_null:
+              config:
+                severity: error
+                tags: ["dqc"]
+      - name: destination
+        tests:
+          - not_null:
+              config:
+                severity: error
+                tags: ["dqc"]

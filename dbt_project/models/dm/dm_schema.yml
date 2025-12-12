@@ -164,20 +164,10 @@ models:
                 tags: ["dqc"]
 
   - name: dm_prices_agg_route
-    config:
-      elementary:
-        timestamp_column: calculated_at
     columns:
       - name: avg_price_rub
         tests:
-          - elementary.column_anomalies:
-              arguments:
-                time_bucket:
-                  period: day
-                  count: 1
-                detection_period:
-                  period: day
-                  count: 7
+          - not_null:
               config:
                 severity: warn
                 tags: ["dqc"]
