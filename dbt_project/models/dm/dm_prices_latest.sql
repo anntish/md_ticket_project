@@ -1,7 +1,8 @@
 {{ config(
     materialized = 'incremental',
     schema = 'dm',
-    tags = ['dm']
+    tags = ['dm'],
+    strategy = 'merge'
 ) }}
 
 with base as (

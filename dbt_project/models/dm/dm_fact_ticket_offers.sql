@@ -1,7 +1,8 @@
 {{ config(
     materialized = 'incremental',
     schema = 'dm',
-    tags = ['dm']
+    tags = ['dm'],
+    incremental_strategy = 'append'
 ) }}
 
 with src as (

@@ -1,7 +1,7 @@
 {{ config(
     materialized = 'incremental',
     unique_key   = ['aviasales_id', 'link'],
-    incremental_strategy = 'merge'
+    incremental_strategy = 'delete+insert'
 ) }}
 
 with src as (
@@ -24,7 +24,7 @@ with src as (
       -- берём только новые/обновлённые строки из stg
       -- относительно уже загруженных processed_src_dttm
       where valid_from_dttm >= (
-        select coalesce(max(processed_src_dttm), '1970-01-01'::timestamptz)
+        select coalesce(max(processed_src_dttm), '1970-01-01'::timestamptz)  - interval '1 hour'
         from {{ this }}
       )
     {% endif %}

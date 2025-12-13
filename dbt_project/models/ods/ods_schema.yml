@@ -2,6 +2,8 @@ version: 2
 
 models:
   - name: ods_ticket_offers
+    description: >
+      Распаршенные данные API
     config:
       elementary:
         timestamp_column: created_at
