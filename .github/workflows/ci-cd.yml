@@ -90,6 +90,8 @@ jobs:
       - name: Sync repository to server
         run: |
           rsync -az --delete \
+            --no-times \
+            --omit-dir-times \
             --exclude '.git/' \
             --exclude '.env' \
             --exclude '.env.*' \
