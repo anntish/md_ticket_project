@@ -52,7 +52,7 @@ with DAG(
     dag_id="aviasales_calendar_service_loader",
     default_args=default_args,
     description="Generate load on the service: call Aviasales collection service in MongoDB",
-    schedule_interval="*/50 * * * *",
+    schedule_interval="@hourly",
     start_date=datetime(2025, 12, 1),
     catchup=False,
     tags=["aviasales", "service", "mongodb"],

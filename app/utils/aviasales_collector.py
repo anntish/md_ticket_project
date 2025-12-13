@@ -270,7 +270,7 @@ def collect_calendar_to_mongo(
                             origin=origin,
                             destination=destination,
                             one_way=one_way,
-                            limit=1000,
+                            limit=100,  # 1000
                             sorting="price",
                             departure_at=departure,
                         )
