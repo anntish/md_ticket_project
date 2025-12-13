@@ -96,10 +96,14 @@ jobs:
             --exclude 'airflow/logs/' \
             --filter='P dbt_project/dbt_packages/' \
             --filter='P dbt_project/target/' \
+            --filter='P dbt_project/elementary_reports/' \
+            --filter='P dbt_project/edr_target/' \
             --exclude 'dbt_project/dbt_packages/**' \
             --exclude 'dbt_project/target/**' \
             --filter='P dbt_project/logs/' \
             --exclude 'dbt_project/logs/**' \
+            --exclude 'dbt_project/elementary_reports/**' \
+            --exclude 'dbt_project/edr_target/**' \
             --filter='P md_ticket_project/' \
             --exclude 'md_ticket_project/**' \
             ./ \
