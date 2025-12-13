@@ -12,6 +12,7 @@ with DAG(
     description="EL: MongoDB (flight_prices_calendar) -> Postgres (aviasales.aviasales_flight_offers)",
     schedule_interval="@hourly",
     start_date=datetime(2025, 12, 1),
+    is_paused_upon_creation=False,
     catchup=False,
     tags=["aviasales", "el", "mongodb", "postgres"],
 ) as dag:

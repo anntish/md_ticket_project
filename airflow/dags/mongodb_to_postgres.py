@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Boolean,
     create_engine,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
@@ -181,7 +182,7 @@ def declare_database_in_postgres() -> None:
         engine = create_engine(postgres_config["url"])
 
         with engine.connect() as connection:
-            connection.execute("CREATE SCHEMA IF NOT EXISTS raw;")
+            connection.execute(text("CREATE SCHEMA IF NOT EXISTS raw;"))
             Base.metadata.create_all(engine, checkfirst=True)
             logger.info("Schema 'raw' and table 'aviasales_api_log' ensured.")
     except Exception as e:
@@ -251,7 +252,7 @@ def upsert_aviasales_logs(
 
         logger.info("Upsert completed successfully.")
     except Exception as e:
-        session.rollback(session)
+        session.rollback()
         logger.error(f"Error occurred during upsert: {e}")
         raise
 
