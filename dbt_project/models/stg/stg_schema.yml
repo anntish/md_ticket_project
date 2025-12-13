@@ -2,11 +2,15 @@ version: 2
 
 models:
   - name: stg_ticket_offers
+    description: >
+      Актуальные данные API
     config:
       elementary:
         timestamp_column: created_at
     columns:
       - name: response
+        description: >
+          ответ API
         tests:
           - not_null:
               config:
@@ -14,6 +18,8 @@ models:
                 tags: [ "dqc" ]
 
       - name: request
+        description: >
+          запрос API
         tests:
           - not_null:
               config:

@@ -2,6 +2,9 @@ version: 2
 
 models:
   - name: dm_fact_ticket_offers
+    description: >
+      Все полученные данные о самых дешевых билетах
+
     config:
       elementary:
         timestamp_column: created_at
@@ -94,6 +97,8 @@ models:
         tags: ["dqc"]
 
   - name: dm_prices_latest
+    description: >
+      Последняя найденная самая дешевая цена для каждой комбинации по дню управления и маршруту
     config:
       elementary:
         timestamp_column: created_at
@@ -121,6 +126,8 @@ models:
               field: aviasales_id
 
   - name: dm_prices_agg_search_dep_route
+    description: >
+      Средняя минимальная цена для каждой комбинации дня поиска, дня вылета и маршрута
     config:
       elementary:
         timestamp_column: search_date
@@ -137,6 +144,8 @@ models:
             tags: ["dqc"]
 
   - name: dm_prices_agg_dep_route
+    description: >
+      Средняя минимальная цена для каждой комбинации дня вылета и маршрута
     config:
       elementary:
         timestamp_column: departure_date
@@ -155,6 +164,8 @@ models:
                 tags: ["dqc"]
 
   - name: dm_prices_agg_route
+    description: >
+      Средняя самая дешевая цена для каждого маршрута
     columns:
       - name: avg_price_rub
         tests:
@@ -164,6 +175,8 @@ models:
                 tags: ["dqc"]
 
   - name: dm_airports
+    description: >
+      Соответствие аэропортов и городов (коды)
     columns:
       - name: airport_code
         tests:
