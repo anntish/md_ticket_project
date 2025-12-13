@@ -33,8 +33,6 @@ with DAG(
         bash_command=f"cd {DBT_PROJECT_DIR} && dbt run --profiles-dir {DBT_PROFILES_DIR}",
     )
 
-    # Elementary report needs dbt artifacts; tests may warn/fail on anomalies.
-    # We don't block report generation on test failures.
     dbt_test = BashOperator(
         task_id="dbt_test",
         bash_command=(
