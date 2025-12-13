@@ -49,6 +49,7 @@ flattened as (
         s.req_json ->> 'destination'   as req_destination,
         to_date(s.req_json ->> 'departure_at', 'YYYY-MM') as req_departure_month,
         s.req_json ->> 'currency'      as req_currency,
+        s.req_json ->> 'one_way'       as req_one_way,
 
         -- общие поля ответа
         s.resp_json ->> 'currency'     as resp_currency,
@@ -78,6 +79,7 @@ final as (
         req_destination,
         req_departure_month,
         req_currency,
+        req_one_way,
         resp_currency,
 
         elem ->> 'link'                as link,
@@ -101,6 +103,7 @@ final as (
         ) as search_date
 
     from flattened
+    where req_one_way = 'true'
 )
 
 select *
