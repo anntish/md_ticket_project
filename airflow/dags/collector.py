@@ -54,6 +54,7 @@ with DAG(
     description="Generate load on the service: call Aviasales collection service in MongoDB",
     schedule_interval="@hourly",
     start_date=datetime(2025, 12, 1),
+    is_paused_upon_creation=False,
     catchup=False,
     tags=["aviasales", "service", "mongodb"],
 ) as dag:
