@@ -251,7 +251,7 @@ def upsert_aviasales_logs(
 
         logger.info("Upsert completed successfully.")
     except Exception as e:
-        session.rollback()
+        session.rollback(session)
         logger.error(f"Error occurred during upsert: {e}")
         raise
 
