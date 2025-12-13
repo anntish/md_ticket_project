@@ -25,27 +25,48 @@ with DAG(
 ) as dag:
     dbt_deps = BashOperator(
         task_id="dbt_deps",
-        bash_command=f"cd {DBT_PROJECT_DIR} && dbt deps --profiles-dir {DBT_PROFILES_DIR}",
+        bash_command=(
+            "set -euo pipefail; "
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f"cd {DBT_PROJECT_DIR}; "
+            'echo "DBT_PROJECT_DIR=$(pwd)"; '
+            "ls -la; "
+            "dbt --version; "
+            f"dbt deps --profiles-dir {DBT_PROFILES_DIR}"
+        ),
     )
 
     dbt_run = BashOperator(
         task_id="dbt_run",
-        bash_command=f"cd {DBT_PROJECT_DIR} && dbt run --profiles-dir {DBT_PROFILES_DIR}",
+        bash_command=(
+            "set -euo pipefail; "
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f"cd {DBT_PROJECT_DIR}; "
+            f"dbt run --profiles-dir {DBT_PROFILES_DIR}"
+        ),
     )
 
     dbt_test = BashOperator(
         task_id="dbt_test",
         bash_command=(
-            f"cd {DBT_PROJECT_DIR} && dbt test --profiles-dir {DBT_PROFILES_DIR} || true"
+            "set -euo pipefail; "
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f"cd {DBT_PROJECT_DIR}; "
+            f"dbt test --profiles-dir {DBT_PROFILES_DIR} || true"
         ),
     )
 
     edr_report = BashOperator(
         task_id="edr_report",
         bash_command=(
-            f"cd {DBT_PROJECT_DIR} && "
-            f"mkdir -p elementary_reports && "
-            f"edr report --profiles-dir {DBT_PROFILES_DIR} --target-path elementary_reports || true"
+            "set -euo pipefail; "
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f"cd {DBT_PROJECT_DIR}; "
+            "mkdir -p elementary_reports; "
+            f"edr report --profiles-dir {DBT_PROFILES_DIR} --target-path elementary_reports || true; "
+            "if [ -f elementary_reports/elementary_report.html ]; then "
+            "cp -f elementary_reports/elementary_report.html elementary_reports/index.html; "
+            "fi"
         ),
     )
 
