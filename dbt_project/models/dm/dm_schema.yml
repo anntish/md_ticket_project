@@ -7,67 +7,63 @@ models:
         timestamp_column: created_at
     tests:
       - elementary.volume_anomalies:
-          arguments:
-            time_bucket:
-              period: hour
-              count: 12
-            detection_period:
-              period: day
-              count: 14
-            detection_delay:
-              period: hour
-              count: 12
+          time_bucket:
+            period: hour
+            count: 12
+          detection_period:
+            period: day
+            count: 14
+          detection_delay:
+            period: hour
+            count: 12
           config:
             severity: warn
             tags: ["dqc"]
 
       - elementary.freshness_anomalies:
-          arguments:
-            time_bucket:
-              period: hour
-              count: 12
-            detection_period:
-              period: day
-              count: 7
-            detection_delay:
-              period: hour
-              count: 12
+          time_bucket:
+            period: hour
+            count: 12
+          detection_period:
+            period: day
+            count: 7
+          detection_delay:
+            period: hour
+            count: 12
           config:
             severity: warn
             tags: ["dqc"]
 
       - elementary.event_freshness_anomalies:
-          arguments:
-            event_timestamp_column: created_at
-            update_timestamp_column: processed_src_dttm
-            time_bucket:
-              period: hour
-              count: 12
-            detection_delay:
-              period: hour
-              count: 12
+          event_timestamp_column: created_at
+          update_timestamp_column: processed_src_dttm
+          time_bucket:
+            period: hour
+            count: 12
+          detection_delay:
+            period: hour
+            count: 12
           config:
             severity: warn
             tags: ["dqc"]
 
       - elementary.dimension_anomalies:
-          arguments:
-            dimensions:
-              - status_code
-              - endpoint
-              - currency
-              - price_bucket
-              - transfers_cnt
-              - is_direct
-            time_bucket:
-              period: hour
-              count: 12
-            detection_period:
-              period: day
-              count: 14
-            detection_delay:
-              period: hour
-              count: 12
+          dimensions:
+            - status_code
+            - endpoint
+            - currency
+            - price_bucket
+            - transfers_cnt
+            - is_direct
+          time_bucket:
+            period: hour
+            count: 12
+          detection_period:
+            period: day
+            count: 14
+          detection_delay:
+            period: hour
+            count: 12
           config:
             severity: warn
             tags: ["dqc"]
@@ -83,16 +79,15 @@ models:
               config:
                 severity: error
           - elementary.column_anomalies:
-              arguments:
-                time_bucket:
-                  period: hour
-                  count: 12
-                detection_period:
-                  period: day
-                  count: 14
-                detection_delay:
-                  period: hour
-                  count: 12
+              time_bucket:
+                period: hour
+                count: 12
+              detection_period:
+                period: day
+                count: 14
+              detection_delay:
+                period: hour
+                count: 12
               config:
                 severity: warn
                 tags: ["dqc"]
@@ -104,13 +99,12 @@ models:
         timestamp_column: created_at
     tests:
       - elementary.all_columns_anomalies:
-          arguments:
-            time_bucket:
-              period: day
-              count: 1
-            detection_period:
-              period: day
-              count: 14
+          time_bucket:
+            period: day
+            count: 1
+          detection_period:
+            period: day
+            count: 14
           config:
             severity: warn
             tags: ["dqc"]
@@ -123,9 +117,8 @@ models:
       - name: aviasales_id
         tests:
           - relationships:
-              arguments:
-                to: ref('dm_fact_ticket_offers')
-                field: aviasales_id
+              to: ref('dm_fact_ticket_offers')
+              field: aviasales_id
 
   - name: dm_prices_agg_search_dep_route
     config:
@@ -133,13 +126,12 @@ models:
         timestamp_column: search_date
     tests:
       - elementary.volume_anomalies:
-          arguments:
-            time_bucket:
-              period: day
-              count: 1
-            detection_period:
-              period: day
-              count: 7
+          time_bucket:
+            period: day
+            count: 1
+          detection_period:
+            period: day
+            count: 7
           config:
             severity: warn
             tags: ["dqc"]
@@ -152,13 +144,12 @@ models:
       - name: avg_price_rub
         tests:
           - elementary.column_anomalies:
-              arguments:
-                time_bucket:
-                  period: day
-                  count: 1
-                detection_period:
-                  period: day
-                  count: 7
+              time_bucket:
+                period: day
+                count: 1
+              detection_period:
+                period: day
+                count: 7
               config:
                 severity: warn
                 tags: ["dqc"]
