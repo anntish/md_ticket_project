@@ -30,10 +30,13 @@ x-airflow-common: &airflow-common
     MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
     AIRFLOW_CONN_MONGO_DEFAULT: '{"conn_type":"mongo","host":"mongodb","port":27017,"login":"${MONGO_INITDB_ROOT_USERNAME}","password":"${MONGO_INITDB_ROOT_PASSWORD}","schema":"${MONGO_INITDB_DATABASE}","extra":{"authsource":"admin"}}'
     AIRFLOW_CONN_POSTGRES_DEFAULT: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+    DBT_PROJECT_DIR: /opt/airflow/dbt_project
+    DBT_PROFILES_DIR: /opt/airflow/dbt_project
   volumes:
     - ../airflow/dags:/opt/airflow/dags
     - ../airflow/logs:/opt/airflow/logs
     - ../airflow/plugins:/opt/airflow/plugins
+    - ../dbt_project:/opt/airflow/dbt_project
   depends_on:
     airflow-postgres:
       condition: service_healthy
